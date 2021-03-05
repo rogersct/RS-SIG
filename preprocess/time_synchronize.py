@@ -1,4 +1,6 @@
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.dates as dates
 import numpy as np
 import pandas as pd
 from statistics import mean 
@@ -7,6 +9,8 @@ import scipy.signal
 from scipy.signal import find_peaks, peak_prominences
 import collections 
 import seaborn as sns
+import datetime
+
 sns.set(rc={'figure.figsize':(20, 10)})
 
 def top_x_prominences(speed, top_num_candidate, name):
@@ -36,10 +40,11 @@ def estimate_time_shift(omap_df, evr_df):
     
     Based on the top x promineces detected, find matching peaks and vote based on epoch difference and estimate the mean time shift
     """
-    # omap_df_speed = omap_df['ATO_Train speed'].interpolate().values
-    # evr_df_speed = evr_df['EOD_V1_OA_DMASPE'].interpolate().values
-    omap_df_speed = omap_df['ATO_0803_Train_speed'].interpolate().values
-    evr_df_speed = evr_df['EOD_179_V1_OA_DMASPE'].interpolate().values
+    print("---Estimating time shift between OMAP and EVR---")
+    omap_df_speed = omap_df['ATO_Train speed'].interpolate().values
+    evr_df_speed = evr_df['EOD_V1_OA_DMASPE'].interpolate().values
+    # omap_df_speed = omap_df['ATO_0803_Train_speed'].interpolate().values
+    # evr_df_speed = evr_df['EOD_179_V1_OA_DMASPE'].interpolate().values
     top_num_candidate = 10
     # Find OMAP Speed Peak Prominences
     omap_peaks, omap_contour_heights, omap_top_x_prominences_index = top_x_prominences(omap_df_speed, top_num_candidate, "OMAP")
@@ -75,7 +80,7 @@ def estimate_time_shift(omap_df, evr_df):
         #print(index_list)
         indexed_differences_list = map(lambda i: differences_list[i], index_list)
         mean_time_shift = int(mean(indexed_differences_list))
-        print(differences_list, mean_time_shift)
+        #print(differences_list, mean_time_shift)
     
     fig, axs = plt.subplots(nrows=3,sharex=True,sharey=True)
     fig.subplots_adjust(hspace=0.7)
@@ -118,10 +123,10 @@ def estimate_time_shift(omap_df, evr_df):
     raw_mean_acc = compute_speed_accuracy (omap_df, evr_df)
     
     # Corrected Speed Profile
-    evr_df['epoch'] = evr_df['epoch'].apply(lambda x : x+mean_time_shift)
+    #evr_df['epoch'] = evr_df['epoch'].apply(lambda x : x+mean_time_shift)
     corrected_mean_acc = compute_speed_accuracy (omap_df, evr_df)
     
-    print(raw_mean_acc, corrected_mean_acc)
+    #print(raw_mean_acc, corrected_mean_acc)
     
     
     return mean_time_shift
@@ -132,10 +137,13 @@ def apply_time_shift(df, time_shift, evr_filepath):
     
     Based on the top x promineces detected, find matching peaks and vote based on epoch difference and estimate the mean time shift
     """
+    print("---Applying time shift on EVR---")
     # Apply Time shift to EVR Epoch
     df['epoch'] = df['epoch'].apply(lambda x : x+time_shift)
     filename = evr_filepath.split('.csv')[0] + "_Corrected.csv"
     df.to_csv(filename, index=False, header=True)
+    
+    return df
     
 def compute_speed_accuracy (omap_df, evr_df):
     """ Return Speed Accuracy
@@ -144,10 +152,12 @@ def compute_speed_accuracy (omap_df, evr_df):
     """
     #Set Index of dataframe to epoch
     omap_df = omap_df.set_index('epoch')
-    omap_df = omap_df['ATO_0803_Train_speed'].to_frame()
+    omap_df = omap_df['ATO_Train speed'].to_frame()
+    #omap_df = omap_df['ATO_0803_Train_speed'].to_frame()
     #evr_df['epoch'] = evr_df['epoch'].apply(lambda x : x+mean_time_shift)
     evr_df = evr_df.set_index('epoch')
-    evr_df = evr_df['EOD_179_V1_OA_DMASPE'].to_frame()
+    evr_df = evr_df['EOD_V1_OA_DMASPE'].to_frame()
+    #evr_df = evr_df['EOD_179_V1_OA_DMASPE'].to_frame()
  
     combined = omap_df.join(evr_df, how='outer')
     combined.index = pd.to_datetime(combined.index,unit='ms')
@@ -155,6 +165,129 @@ def compute_speed_accuracy (omap_df, evr_df):
     combined = combined.apply(pd.Series.interpolate, args=('time',))
     #combined = combined.fillna(method='backfill')
     
-    combined['acc_test'] = abs(combined['ATO_0803_Train_speed'] - combined['EOD_179_V1_OA_DMASPE'])
-    print(combined['acc_test'].mean())
+    combined['acc_test'] = abs(combined['ATO_Train speed'] - combined['EOD_V1_OA_DMASPE'])
+    #combined['acc_test'] = abs(combined['ATO_0803_Train_speed'] - combined['EOD_179_V1_OA_DMASPE'])
+    #print(combined['acc_test'].mean())
     return(combined['acc_test'].mean())
+
+def display_overrun (omap_df, evr_df):
+    """For Demonstration Purposes
+    
+    """
+    omap_df_epoch = omap_df['epoch'].values
+    omap_df_epoch_datetime = [datetime.datetime.utcfromtimestamp(epoch / 1000.).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] for epoch in omap_df_epoch]
+    #datetime.datetime.fromtimestamp(s).strftime('%Y-%m-%d %H:%M:%S.%f')
+    #Gives the number of days (fraction part represents hours, minutes, seconds) since 0001-01-01 00:00:00 UTC, plus one
+    omap_df_epoch_datetime_num = matplotlib.dates.date2num(omap_df_epoch_datetime)
+    #omap_df_epoch_datetime = np.array(omap_df_epoch[0], dtype='i8').view('datetime64[ms]').tolist()
+    print(omap_df_epoch_datetime_num[0],omap_df_epoch_datetime_num[20])
+    print(omap_df_epoch_datetime[0],omap_df_epoch_datetime[20])
+    #print(datetime.datetime.utcfromtimestamp(omap_df_epoch[0]).strftime('%Y-%m-%d %H:%M:%S'))
+    # Plot OMAP
+    fig, axs = plt.subplots(nrows=2,sharex=True) #sharey=True
+    ax = axs[0]
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_0504_Area_SSP_dist'].interpolate().values, '-')
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_0803_Train_speed'].interpolate().values, '-')
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_1804_MBC'].interpolate().values, '-')
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATP_150_ZVI'].interpolate().values, '-')
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATP_145_ZVRD'].interpolate().values, '-')
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_1222_Act_RP_act_C_speed'].interpolate().values, '-')
+    ax.set_title ("OMAP")
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    ax.legend(["ATO_0504_Area_SSP_dist", "ATO_0803_Train_speed", "ATO_1804_MBC", "ATP_150_ZVI", "ATP_145_ZVRD", "ATO_1222_Act_RP_act_C_speed"], loc="upper left")
+    formatter = dates.DateFormatter('%H:%M:%S')
+    ax.xaxis.set_major_formatter(formatter)    
+    #plt.gca().xaxis.set_major_locator(dates.HourLocator(byhour=[0,1]))
+    #ax.xaxis.set_major_formatter(formatter)
+    #ax.fmt_xdata = DateFormatter('% Y-% m-% d % H:% M:% S') 
+
+    # Plot EVR
+    evr_df_epoch = evr_df['epoch'].values
+    evr_df_epoch_datetime = [datetime.datetime.utcfromtimestamp(epoch / 1000.).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] for epoch in evr_df_epoch]
+    #datetime.datetime.fromtimestamp(s).strftime('%Y-%m-%d %H:%M:%S.%f')
+    evr_df_epoch_datetime_num = matplotlib.dates.date2num(evr_df_epoch_datetime)
+    ax = axs[1]
+    ax.plot_date(evr_df_epoch_datetime_num, evr_df['EOD_179_V1_OA_DMASPE'].interpolate().values, '-')
+    #EC2_205_SI1_DM_ATC_RSC
+    #EC2_206_SI6_DM_ATC_RSC
+    
+    ax.set_title ("EVR")
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Value')
+    formatter = dates.DateFormatter('%H:%M:%S')
+    ax.xaxis.set_major_formatter(formatter) 
+    fig.autofmt_xdate()
+    plt.show()
+  
+def display_overrun_demo (omap_df, evr_df):
+    """For Demonstration Purposes
+    
+    """
+    # Convert OMAP Unix Timestamp to DateTime string
+    omap_df_epoch = omap_df['epoch'].values
+    omap_df_epoch_datetime = [datetime.datetime.utcfromtimestamp(epoch / 1000.).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] for epoch in omap_df_epoch]
+    # Give the number of days (fraction part represents hours, minutes, seconds) since 0001-01-01 00:00:00 UTC, plus one
+    omap_df_epoch_datetime_num = matplotlib.dates.date2num(omap_df_epoch_datetime)
+    
+    # Convert EVR Unix Timestamp to DateTime string
+    evr_df_epoch = evr_df['epoch'].values
+    evr_df_epoch_datetime = [datetime.datetime.utcfromtimestamp(epoch / 1000.).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] for epoch in evr_df_epoch]
+    evr_df_epoch_datetime_num = matplotlib.dates.date2num(evr_df_epoch_datetime)
+    
+    #plt.style.use('dark_background')
+    #plt.style.use('seaborn')
+    sns.set_style("darkgrid")
+    fig = plt.figure()
+    gs = fig.add_gridspec(6, hspace=0)
+    axs = gs.subplots(sharex=True)
+    # Plot ATO_0803_Train_speed
+    #fig, axs = plt.subplots(nrows=6,sharex=True) #sharey=True
+    ax = axs[0]
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_Train speed'].interpolate().values, '-', color="red", label='ATO_Train speed')
+    #ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_0803_Train_speed'].interpolate().values, '-', color="red", label='ATO_0803_Train_speed')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('ATO_0803_Train_speed')
+    
+    # Plot EOD_179_V1_OA_DMASPE
+    ax = axs[1]
+    ax.plot_date(evr_df_epoch_datetime_num, evr_df['EOD_V1_OA_DMASPE'].interpolate().values, '-', color="gold", label='EOD_V1_OA_DMASPE')
+    #ax.plot_date(evr_df_epoch_datetime_num, evr_df['EOD_179_V1_OA_DMASPE'].interpolate().values, '-', color="yellow", label='EOD_179_V1_OA_DMASPE')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('EOD_179_V1_OA_DMASPE')
+    
+    # Plot ATO_1804_MBC
+    ax = axs[2]
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_MBC'].interpolate().values, '-', color="green", label='ATO_MBC')
+    #ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATO_1804_MBC'].interpolate().values, '-', color="green", label='ATO_1804_MBC')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('ATO_1804_MBC')
+    
+    # Plot EC2_207_V2_TB_TRBREFF
+    ax = axs[3]
+    ax.plot_date(evr_df_epoch_datetime_num, evr_df['EC2_V2_TB_TRBREFF'].interpolate().values, '-', color="purple", label='EC2_V2_TB_TRBREFF')
+    #ax.plot_date(evr_df_epoch_datetime_num, evr_df['EC2_207_V2_TB_TRBREFF'].interpolate().values, '-', color="purple", label='EC2_207_V2_TB_TRBREFF')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('EC2_207_V2_TB_TRBREFF')
+    
+    # Plot ATP_150_ZVI
+    ax = axs[4]
+    ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATP_ZVI'].interpolate().values, '-', color="blue", label='ATP_ZVI')
+    #ax.plot_date(omap_df_epoch_datetime_num, omap_df['ATP_150_ZVI'].interpolate().values, '-', color="blue", label='ATP_150_ZVI')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('ATP_150_ZVI')
+    
+    # Plot EC2_035_V1_DM_ATC1_ZVI
+    ax = axs[5]
+    ax.plot_date(evr_df_epoch_datetime_num, evr_df['EC2_V1_DM_ATC1_ZVI'].interpolate().values, '-', color="orange", label='EC2_V1_DM_ATC1_ZVI')
+    #ax.plot_date(evr_df_epoch_datetime_num, evr_df['EC2_035_V1_DM_ATC1_ZVI'].interpolate().values, '-', color="orange", label='EC2_035_V1_DM_ATC1_ZVI')
+    ax.set_xlabel('Epoch')
+    #ax.set_ylabel('EC2_035_V1_DM_ATC1_ZVI')
+  
+    formatter = dates.DateFormatter('%H:%M:%S')
+    ax.xaxis.set_major_formatter(formatter)    
+    fig.autofmt_xdate()
+    lines_labels = [ax.get_legend_handles_labels() for ax in fig.axes]
+    lines, labels = [sum(lol, []) for lol in zip(*lines_labels)]
+    fig.legend(lines, labels, loc='upper left')
+    plt.show()
